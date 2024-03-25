@@ -4,22 +4,34 @@ var WG_PATH = ""
 var WG_HOST = ""
 var WG_PORT = ""
 
-func getConfig() {
+type WGClient struct {
+}
+
+func WGgetConfig() {
 
 }
 
-func saveConfig() {
+func WGsaveConfig() {
 
 }
 
-func getClients() {
+func WGgetClients() {
 
 }
 
-func getClient(clientId string) {
+func WGgetClient(clientId string) WGClient {
+	var client WGClient
+	return client
+}
+
+func WGgetClientConfig(clientId string) {
 
 }
 
-func getClientConfig(clientId string) {
+func WGcreateClient(clientId string) {
+
+}
+
+func WGdeleteClient(clientId string) {
 
 }
