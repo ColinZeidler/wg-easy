@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -39,9 +40,34 @@ type clientUri struct {
 	ClientId string `uri:"clientId" binding:"required"`
 }
 
+type errorMessage struct {
+	Error string `json:"error"`
+}
+
 func AuthMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		fmt.Println("Checking Auth Middleware")
+		if len(PASSWORD) == 0 {
+			fmt.Println("No password Needed, allow api access")
+			ctx.Next()
+			return
+		}
 
+		session := ginsession.FromContext(ctx)
+		value, ok := session.Get("Authenticated")
+		if ok {
+			authenticated, ok := value.(bool)
+			if ok && authenticated {
+				fmt.Println("Authentication Success")
+				ctx.Next()
+				return
+			}
+		}
+
+		response := errorMessage{
+			Error: "Not Logged In",
+		}
+		ctx.IndentedJSON(http.StatusUnauthorized, response)
 	}
 }
 
@@ -104,9 +130,8 @@ func main() {
 		}
 	})
 
-	// TODO WireGuard API authenticated endpoints
-
-	authGroup := router.Group("")
+	// WireGuard API endpoints
+	authGroup := router.Group("/api/wireguard")
 	authGroup.Use(AuthMiddleware())
 	authGroup.DELETE("/api/session", func(ctx *gin.Context) {
 		ginsession.Destroy(ctx)
@@ -115,20 +140,25 @@ func main() {
 		}
 		ctx.IndentedJSON(http.StatusOK, response)
 	})
-	authGroup.GET("/api/wireguard/client", func(ctx *gin.Context) {
+	authGroup.GET("/client", func(ctx *gin.Context) {
+		// Get all Clients
+		fmt.Println("Get Clients")
 		WGgetClients()
 	})
-	authGroup.GET("/api/wireguard/client/:clientId/qrcode.svg", func(ctx *gin.Context) {
+	authGroup.GET("/client/:clientId/qrcode.svg", func(ctx *gin.Context) {
+		// Get Client config as QR code
 		var client clientUri
 		ctx.BindUri(&client)
 		// TODO need a qrcode api
 	})
-	authGroup.GET("/api/wireguard/client/:clientId/configuration", func(ctx *gin.Context) {
+	authGroup.GET("/client/:clientId/configuration", func(ctx *gin.Context) {
+		// Get Client config
 		var client clientUri
 		ctx.BindUri(&client)
 
 	})
-	authGroup.POST("/api/wireguard/client", func(ctx *gin.Context) {
+	authGroup.POST("/client", func(ctx *gin.Context) {
+		// Create Client
 		var client clientName
 		ctx.BindJSON(&client)
 		WGcreateClient(client.Name)
@@ -137,12 +167,25 @@ func main() {
 		}
 		ctx.IndentedJSON(http.StatusOK, response)
 	})
-	authGroup.DELETE("/api/wireguard/client/:clientId", func(ctx *gin.Context) {
+	authGroup.DELETE("/client/:clientId", func(ctx *gin.Context) {
+		// Delete Client
 		var client clientUri
 		ctx.BindUri(&client)
 
 		WGdeleteClient(client.ClientId)
 
+	})
+	authGroup.POST("/client/:clientId/enable", func(ctx *gin.Context) {
+		// Enable Client
+	})
+	authGroup.POST("/client/:clientId/disable", func(ctx *gin.Context) {
+		// Disable Client
+	})
+	authGroup.PUT("/client/:clientId/name", func(ctx *gin.Context) {
+		// Update Client name
+	})
+	authGroup.PUT("/client/:clientId/address", func(ctx *gin.Context) {
+		// Update Client address
 	})
 
 	router.Run(":9505")
