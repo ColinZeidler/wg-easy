@@ -8,6 +8,8 @@
 
 You have found the easiest way to install & manage WireGuard on any Linux host!
 
+This is a Fork that is re-writing the backend server in Go
+
 <p align="center">
   <img src="./assets/screenshot.png" width="802" />
 </p>

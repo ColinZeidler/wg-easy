@@ -16,6 +16,7 @@ var UI_TRAFFIC_STATS = false
 var UI_CHART_TYPE = 0
 var USER = ""
 var PASSWORD = ""
+var WEB_PORT = "9505"
 
 type sessionData struct {
 	RequiresPassword bool `json:"requiresPassword"`
@@ -250,5 +251,5 @@ func main() {
 		ctx.IndentedJSON(http.StatusOK, response)
 	})
 
-	router.Run(":9505")
+	router.Run(":" + WEB_PORT)
 }

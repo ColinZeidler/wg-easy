@@ -23,6 +23,9 @@ var WG_PRE_UP = ""
 var WG_POST_UP = ""
 var WG_PRE_DOWN = ""
 var WG_POST_DOWN = ""
+var WG_INTERFACE = "wg0"
+
+var TESTING = false
 
 type WGConfig struct {
 	Server  WGServer            `json:"server"`
@@ -52,21 +55,26 @@ type WGClient struct {
 	PrivateKey          string `json:"privateKey,omitempty"`
 }
 
-func WGgetConfig() WGConfig {
-	jsonBytes, err := os.ReadFile(filepath.Join(WG_PATH, "wg0.json"))
-	var wgConfig WGConfig
-	if err == nil {
-		jsonErr := json.Unmarshal(jsonBytes, &wgConfig)
-		if jsonErr != nil {
+var myConfig *WGConfig = nil
+
+func WGgetConfig() *WGConfig {
+	if myConfig == nil {
+		jsonBytes, err := os.ReadFile(filepath.Join(WG_PATH, WG_INTERFACE+".json"))
+		var wgConfig WGConfig
+		if err == nil {
+			jsonErr := json.Unmarshal(jsonBytes, &wgConfig)
+			if jsonErr != nil {
+				wgConfig = WGcreateNewConfig()
+			}
+		} else {
 			wgConfig = WGcreateNewConfig()
 		}
-	} else {
-		wgConfig = WGcreateNewConfig()
+		myConfig = &wgConfig
+		_WGsaveConfig(myConfig)
+		// TODO first time startup of config with wg-quick down up
+		// _WGsyncConfig()
 	}
-
-	fmt.Println(wgConfig)
-	_WGsaveConfig(wgConfig)
-	return wgConfig
+	return myConfig
 }
 
 func WGcreateNewConfig() WGConfig {
@@ -105,30 +113,62 @@ func WGsaveConfig() {
 	_WGsyncConfig()
 }
 
-func _WGsaveConfig(wgConfig WGConfig) {
-	jsonBytes, err := json.Marshal(wgConfig)
+func _WGsaveConfig(wgConfig *WGConfig) {
+	jsonBytes, err := json.MarshalIndent(wgConfig, "", "\t")
 	if err != nil {
 		fmt.Println("Issue Encoding config to JSON", err)
 	}
-	err = os.WriteFile(filepath.Join(WG_PATH, "wg0.json"), jsonBytes, 0o600)
+	err = os.WriteFile(filepath.Join(WG_PATH, WG_INTERFACE+".json"), jsonBytes, 0o600)
 	if err != nil {
 		fmt.Println("Issue writing config", err)
 	}
 
-	// TODO save wg0.conf file
-}
+	// save WG_INTERFACE.conf file
+	var configBuilder strings.Builder
 
-func _WGsyncConfig() {
-	cmd := exec.Command("wg", "syncconfg", "wg0", filepath.Join(WG_PATH, "wg0.conf"))
-	err := cmd.Run()
-	if err != nil {
-		fmt.Println("Error syncing wg config: ", err)
+	configBuilder.WriteString("# Server\n")
+	configBuilder.WriteString("[Interface]\n")
+	configBuilder.WriteString("PrivateKey = " + wgConfig.Server.PrivateKey + "\n")
+	configBuilder.WriteString("Address = " + wgConfig.Server.Address + "/24\n")
+	configBuilder.WriteString("ListenPort = " + WG_PORT + "\n")
+	configBuilder.WriteString("PreUp = " + WG_PRE_UP + "\n")
+	configBuilder.WriteString("PostUp = " + WG_POST_UP + "\n")
+	configBuilder.WriteString("PreDown = " + WG_PRE_DOWN + "\n")
+	configBuilder.WriteString("PostDown = " + WG_POST_DOWN + "\n")
+	configBuilder.WriteString("\n")
+
+	for clientId, client := range wgConfig.Clients {
+		configBuilder.WriteString("# Client" + client.Name + " (" + clientId + ")\n")
+		configBuilder.WriteString("[Peer]\n")
+		configBuilder.WriteString("PublicKey = " + client.PublicKey + "\n")
+		configBuilder.WriteString("PublicKey = " + client.PublicKey + "\n")
+		configBuilder.WriteString("AllowedIPs = " + client.AllowedIPs + "/32\n")
+	}
+
+	configString := configBuilder.String()
+
+	confErr := os.WriteFile(filepath.Join(WG_PATH, WG_INTERFACE+".conf"), []byte(configString), 0o600)
+	if confErr != nil {
+		fmt.Println("Issue writing .conf config", err)
 	}
 
 }
 
+func _WGsyncConfig() {
+	if TESTING {
+		fmt.Println("Skipping due to testing")
+		return
+	}
+	pipeCmd := "wg syncconf " + WG_INTERFACE + " <(wg-quick strip " + WG_INTERFACE + ")"
+	cmd := exec.Command("bash", "-c", pipeCmd)
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("Error syncing wg config: ", err)
+	}
+}
+
 func WGgetStats() (string, bool) {
-	cmd := exec.Command("wg", "show", "wg0", "dump")
+	cmd := exec.Command("wg", "show", WG_INTERFACE, "dump")
 	var statsB bytes.Buffer
 	cmd.Stdout = &statsB
 	err := cmd.Run()
@@ -206,26 +246,18 @@ func WGgetClientConfig(clientId string) (string, bool) {
 	} else {
 		configBuilder.WriteString(client.PrivateKey)
 	}
-	configBuilder.WriteString("\nAddress = ")
-	configBuilder.WriteString(client.Address)
-	configBuilder.WriteString("/24")
+	configBuilder.WriteString("\nAddress = " + client.Address + "/24")
 	if WG_DEFAULT_DNS != "" {
-		configBuilder.WriteString("\nDNS = ")
-		configBuilder.WriteString(WG_DEFAULT_DNS)
+		configBuilder.WriteString("\nDNS = " + WG_DEFAULT_DNS)
 	}
 	if WG_MTU != "" {
-		configBuilder.WriteString("\nMTU = ")
-		configBuilder.WriteString(WG_MTU)
+		configBuilder.WriteString("\nMTU = " + WG_MTU)
 	}
 
-	configBuilder.WriteString("\n\n[Peer]\nPublicKey = ")
-	configBuilder.WriteString(config.Server.PublicKey)
-	configBuilder.WriteString("\nAllowedIPs = ")
-	configBuilder.WriteString(WG_ALLOWED_IPS)
-	configBuilder.WriteString("\nEndpoint = ")
-	configBuilder.WriteString(WG_HOST)
-	configBuilder.WriteString(":")
-	configBuilder.WriteString(WG_PORT)
+	configBuilder.WriteString("\n\n[Peer]\nPublicKey = " + config.Server.PublicKey)
+	configBuilder.WriteString("\nAllowedIPs = " + WG_ALLOWED_IPS)
+	configBuilder.WriteString("\nEndpoint = " + WG_HOST + ":" + WG_PORT)
+	configBuilder.WriteString("\n")
 
 	clientConfig := configBuilder.String()
 	return clientConfig, true
@@ -256,9 +288,13 @@ func WGupdateClientAddress(clientId string, address string) {
 }
 
 func WGshutdown() {
-	cmd := exec.Command("wg-quick", "down", "wg0")
+	if TESTING {
+		fmt.Println("WGshutdown, Skipping due to Testing")
+		return
+	}
+	cmd := exec.Command("wg-quick", "down", WG_INTERFACE)
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("Error bringing wg0 down: ", err)
+		fmt.Println("Error bringing", WG_INTERFACE, "down:", err)
 	}
 }
