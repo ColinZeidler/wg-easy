@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	ginsession "github.com/go-session/gin-session"
@@ -12,6 +14,7 @@ var RELEASE = 1
 var LANG = "en"
 var UI_TRAFFIC_STATS = false
 var UI_CHART_TYPE = 0
+var USER = ""
 var PASSWORD = ""
 
 type sessionData struct {
@@ -34,6 +37,10 @@ type statusMessage struct {
 
 type clientName struct {
 	Name string `json:"name"`
+}
+
+type clientAddress struct {
+	Address string `json:"address"`
 }
 
 type clientUri struct {
@@ -59,6 +66,25 @@ func AuthMiddleware() gin.HandlerFunc {
 			authenticated, ok := value.(bool)
 			if ok && authenticated {
 				fmt.Println("Authentication Success")
+				ctx.Next()
+				return
+			}
+		}
+
+		if authString, authOk := ctx.Request.Header[http.CanonicalHeaderKey("authorization")]; authOk {
+			authString := authString[0]
+
+			auth := strings.SplitN(authString, " ", 2)
+			if len(auth) != 2 || auth[0] != "Basic" {
+				response := errorMessage{
+					Error: "Not Logged In",
+				}
+				ctx.IndentedJSON(http.StatusUnauthorized, response)
+				return
+			}
+			payload, _ := base64.StdEncoding.DecodeString(auth[1])
+			test := USER + ":" + PASSWORD
+			if test == string(payload) {
 				ctx.Next()
 				return
 			}
@@ -129,17 +155,17 @@ func main() {
 			ctx.IndentedJSON(http.StatusUnauthorized, response)
 		}
 	})
-
-	// WireGuard API endpoints
-	authGroup := router.Group("/api/wireguard")
-	authGroup.Use(AuthMiddleware())
-	authGroup.DELETE("/api/session", func(ctx *gin.Context) {
+	router.DELETE("/api/session", func(ctx *gin.Context) {
 		ginsession.Destroy(ctx)
 		response := successResponse{
 			Success: true,
 		}
 		ctx.IndentedJSON(http.StatusOK, response)
 	})
+
+	// WireGuard API endpoints
+	authGroup := router.Group("/api/wireguard")
+	authGroup.Use(AuthMiddleware())
 	authGroup.GET("/client", func(ctx *gin.Context) {
 		// Get all Clients
 		fmt.Println("Get Clients")
@@ -177,15 +203,51 @@ func main() {
 	})
 	authGroup.POST("/client/:clientId/enable", func(ctx *gin.Context) {
 		// Enable Client
+		var client clientUri
+		ctx.BindUri(&client)
+
+		WGenableClient(client.ClientId)
+		response := successResponse{
+			Success: true,
+		}
+		ctx.IndentedJSON(http.StatusOK, response)
 	})
 	authGroup.POST("/client/:clientId/disable", func(ctx *gin.Context) {
 		// Disable Client
+		var client clientUri
+		ctx.BindUri(&client)
+
+		WGdisableClient(client.ClientId)
+		response := successResponse{
+			Success: true,
+		}
+		ctx.IndentedJSON(http.StatusOK, response)
 	})
 	authGroup.PUT("/client/:clientId/name", func(ctx *gin.Context) {
 		// Update Client name
+		var client clientUri
+		ctx.BindUri(&client)
+		var cName clientName
+		ctx.BindJSON(&cName)
+
+		WGupdateClientName(client.ClientId, cName.Name)
+		response := successResponse{
+			Success: true,
+		}
+		ctx.IndentedJSON(http.StatusOK, response)
 	})
 	authGroup.PUT("/client/:clientId/address", func(ctx *gin.Context) {
 		// Update Client address
+		var client clientUri
+		ctx.BindUri(&client)
+		var cAddress clientAddress
+		ctx.BindJSON(cAddress)
+
+		WGupdateClientAddress(client.ClientId, cAddress.Address)
+		response := successResponse{
+			Success: true,
+		}
+		ctx.IndentedJSON(http.StatusOK, response)
 	})
 
 	router.Run(":9505")

@@ -54,19 +54,58 @@ type WGClient struct {
 
 func WGgetConfig() WGConfig {
 	jsonBytes, err := os.ReadFile(filepath.Join(WG_PATH, "wg0.json"))
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	var wgConfig WGConfig
+	if err == nil {
+		jsonErr := json.Unmarshal(jsonBytes, &wgConfig)
+		if jsonErr != nil {
+			wgConfig = WGcreateNewConfig()
+		}
+	} else {
+		wgConfig = WGcreateNewConfig()
 	}
 
-	var wgConfig WGConfig
-	json.Unmarshal(jsonBytes, &wgConfig)
-
 	fmt.Println(wgConfig)
+	_WGsaveConfig(wgConfig)
 	return wgConfig
 }
 
-func WGsaveConfig(wgConfig WGConfig) {
+func WGcreateNewConfig() WGConfig {
+	outBytes, err := exec.Command("wg", "genkey").Output()
+	if err != nil {
+		fmt.Println("Error creating Private Key")
+		panic(err)
+	}
+	privateKey := string(outBytes)
+	privateKey = strings.Trim(privateKey, "\n")
+
+	cmdPipe := "echo " + privateKey + " | wg pubkey"
+	pubBytes, pubErr := exec.Command("bash", "-c", cmdPipe).Output()
+	if pubErr != nil {
+		fmt.Println("Error creating Public Key")
+		panic(pubErr)
+	}
+	publicKey := string(pubBytes)
+	publicKey = strings.Trim(publicKey, "\n")
+
+	address := strings.Replace(WG_DEFAULT_ADDRESS, "x", "1", -1)
+
+	config := WGConfig{
+		Server: WGServer{
+			PrivateKey: privateKey,
+			PublicKey:  publicKey,
+			Address:    address,
+		},
+	}
+	return config
+}
+
+func WGsaveConfig() {
+	config := WGgetConfig()
+	_WGsaveConfig(config)
+	_WGsyncConfig()
+}
+
+func _WGsaveConfig(wgConfig WGConfig) {
 	jsonBytes, err := json.Marshal(wgConfig)
 	if err != nil {
 		fmt.Println("Issue Encoding config to JSON", err)
@@ -75,9 +114,11 @@ func WGsaveConfig(wgConfig WGConfig) {
 	if err != nil {
 		fmt.Println("Issue writing config", err)
 	}
+
+	// TODO save wg0.conf file
 }
 
-func WGsyncConfig() {
+func _WGsyncConfig() {
 	cmd := exec.Command("wg", "syncconfg", "wg0", filepath.Join(WG_PATH, "wg0.conf"))
 	err := cmd.Run()
 	if err != nil {
@@ -86,15 +127,16 @@ func WGsyncConfig() {
 
 }
 
-func WGgetStats() string {
+func WGgetStats() (string, bool) {
 	cmd := exec.Command("wg", "show", "wg0", "dump")
 	var statsB bytes.Buffer
 	cmd.Stdout = &statsB
 	err := cmd.Run()
 	if err != nil {
 		fmt.Println("Error getting WG stats: ", err)
+		return "", false
 	}
-	return statsB.String()
+	return statsB.String(), true
 }
 
 func WGgetClients() []WGClient {
@@ -102,31 +144,35 @@ func WGgetClients() []WGClient {
 
 	clients := config.Clients
 
-	stats := WGgetStats()
+	stats, ok := WGgetStats()
+	if ok { //if there was an issue gettings stats dont add them
+		for index, line := range strings.Split(stats, "\n") {
+			// First line doesn't match all the peer lines, so skip it
+			if index == 0 {
+				continue
+			}
+			//Data is: pubKey 0, PreSK 1, endpoint 2, allowedIps 3, latestHS 4, RX 5, TX 6, persistKA 7
+			data := strings.Split(line, "\t")
+			publicKey := data[0]
+			lastHandshake := data[4]
+			rx, err := strconv.Atoi(data[5])
+			if err != nil {
+				rx = 0
+			}
+			tx, err := strconv.Atoi(data[6])
+			if err != nil {
+				tx = 0
+			}
+			persist := data[7]
+			client := clients[publicKey]
+			client.LatestHandshakeAt = lastHandshake // TODO parse int and convert to date string like "2024-03-26T21:56:41.430Z"
+			client.TransferRx = rx
+			client.TransferTx = tx
+			client.PersistentKeepalive = persist
 
-	for index, line := range strings.Split(stats, "\n") {
-		// First line doesn't match all the peer lines, so skip it
-		if index == 0 {
-			continue
+			// TODO test if this needs to be done:
+			clients[publicKey] = client
 		}
-		//Data is: pubKey 0, PreSK 1, endpoint 2, allowedIps 3, latestHS 4, RX 5, TX 6, persistKA 7
-		data := strings.Split(line, "\t")
-		publicKey := data[0]
-		lastHandshake := data[4]
-		rx, err := strconv.Atoi(data[5])
-		if err != nil {
-			rx = 0
-		}
-		tx, err := strconv.Atoi(data[6])
-		if err != nil {
-			tx = 0
-		}
-		persist := data[7]
-		client := clients[publicKey]
-		client.LatestHandshakeAt = lastHandshake // TODO parse int and convert to date string "2024-03-26T21:56:41.430Z"
-		client.TransferRx = rx
-		client.TransferTx = tx
-		client.PersistentKeepalive = persist
 	}
 
 	clientArr := make([]WGClient, 0, len(clients))
@@ -146,11 +192,11 @@ func WGgetClient(clientId string) (WGClient, bool) {
 	return client, ok
 }
 
-func WGgetClientConfig(clientId string) string {
+func WGgetClientConfig(clientId string) (string, bool) {
 	config := WGgetConfig()
 	client, ok := WGgetClient(clientId)
 	if !ok {
-		return ""
+		return "", false
 	}
 
 	var configBuilder strings.Builder
@@ -182,7 +228,7 @@ func WGgetClientConfig(clientId string) string {
 	configBuilder.WriteString(WG_PORT)
 
 	clientConfig := configBuilder.String()
-	return clientConfig
+	return clientConfig, true
 }
 
 func WGcreateClient(clientId string) {
