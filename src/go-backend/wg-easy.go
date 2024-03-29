@@ -6,16 +6,17 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
-	ginsession "github.com/go-session/gin-session"
 )
 
-var RELEASE = 1
+var RELEASE = 12
 var LANG = "en"
 var UI_TRAFFIC_STATS = false
 var UI_CHART_TYPE = 0
 var USER = ""
-var PASSWORD = ""
+var PASSWORD = "test"
 var WEB_PORT = "9505"
 
 type sessionData struct {
@@ -61,15 +62,13 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		session := ginsession.FromContext(ctx)
-		value, ok := session.Get("Authenticated")
-		if ok {
-			authenticated, ok := value.(bool)
-			if ok && authenticated {
-				fmt.Println("Authentication Success")
-				ctx.Next()
-				return
-			}
+		session := sessions.Default(ctx)
+		value := session.Get("Authenticated")
+		authenticated, ok := value.(bool)
+		if ok && authenticated {
+			fmt.Println("Authentication Success")
+			ctx.Next()
+			return
 		}
 
 		if authString, authOk := ctx.Request.Header[http.CanonicalHeaderKey("authorization")]; authOk {
@@ -100,7 +99,8 @@ func AuthMiddleware() gin.HandlerFunc {
 
 func main() {
 	router := gin.Default()
-	router.Use(ginsession.New())
+	store := cookie.NewStore([]byte("qiouwhjklv"))
+	router.Use(sessions.Sessions("wgeasysession", store))
 	router.GET("/api/release", func(ctx *gin.Context) {
 		ctx.IndentedJSON(http.StatusOK, RELEASE)
 	})
@@ -118,11 +118,9 @@ func main() {
 		reqPw := len(PASSWORD) > 0
 		authenticated := false
 		if reqPw {
-			session := ginsession.FromContext(ctx)
-			value, ok := session.Get("Authenticated")
-			if !ok {
-				authenticated = false
-			}
+			session := sessions.Default(ctx)
+			value := session.Get("Authenticated")
+			var ok bool
 			authenticated, ok = value.(bool)
 			if !ok {
 				authenticated = false
@@ -140,8 +138,10 @@ func main() {
 		ctx.BindJSON(&login)
 
 		authenticated := login.Password == PASSWORD
-		session := ginsession.FromContext(ctx)
+		fmt.Println(login, PASSWORD, authenticated)
+		session := sessions.Default(ctx)
 		session.Set("Authenticated", authenticated)
+		session.Save()
 
 		if authenticated {
 			response := successResponse{
@@ -157,7 +157,8 @@ func main() {
 		}
 	})
 	router.DELETE("/api/session", func(ctx *gin.Context) {
-		ginsession.Destroy(ctx)
+		session := sessions.Default(ctx)
+		session.Clear()
 		response := successResponse{
 			Success: true,
 		}
@@ -169,20 +170,24 @@ func main() {
 	authGroup.Use(AuthMiddleware())
 	authGroup.GET("/client", func(ctx *gin.Context) {
 		// Get all Clients
-		fmt.Println("Get Clients")
-		WGgetClients()
+		clients := WGgetClients()
+		ctx.IndentedJSON(http.StatusOK, clients)
 	})
 	authGroup.GET("/client/:clientId/qrcode.svg", func(ctx *gin.Context) {
 		// Get Client config as QR code
 		var client clientUri
 		ctx.BindUri(&client)
 		// TODO need a qrcode api
+
 	})
 	authGroup.GET("/client/:clientId/configuration", func(ctx *gin.Context) {
 		// Get Client config
 		var client clientUri
 		ctx.BindUri(&client)
 
+		config := WGgetClientConfig(client.ClientId)
+		ctx.Header("Content-Type", "text/plain")
+		ctx.String(http.StatusOK, config)
 	})
 	authGroup.POST("/client", func(ctx *gin.Context) {
 		// Create Client
@@ -200,7 +205,10 @@ func main() {
 		ctx.BindUri(&client)
 
 		WGdeleteClient(client.ClientId)
-
+		response := successResponse{
+			Success: true,
+		}
+		ctx.IndentedJSON(http.StatusOK, response)
 	})
 	authGroup.POST("/client/:clientId/enable", func(ctx *gin.Context) {
 		// Enable Client
@@ -224,12 +232,17 @@ func main() {
 		}
 		ctx.IndentedJSON(http.StatusOK, response)
 	})
-	authGroup.PUT("/client/:clientId/name", func(ctx *gin.Context) {
+	authGroup.PUT("/client/:clientId/name/", func(ctx *gin.Context) {
 		// Update Client name
 		var client clientUri
 		ctx.BindUri(&client)
 		var cName clientName
-		ctx.BindJSON(&cName)
+		err := ctx.BindJSON(&cName)
+
+		if err != nil {
+			return
+		}
+		fmt.Println(cName, err)
 
 		WGupdateClientName(client.ClientId, cName.Name)
 		response := successResponse{
@@ -237,12 +250,15 @@ func main() {
 		}
 		ctx.IndentedJSON(http.StatusOK, response)
 	})
-	authGroup.PUT("/client/:clientId/address", func(ctx *gin.Context) {
+	authGroup.PUT("/client/:clientId/address/", func(ctx *gin.Context) {
 		// Update Client address
 		var client clientUri
 		ctx.BindUri(&client)
 		var cAddress clientAddress
-		ctx.BindJSON(cAddress)
+		err := ctx.BindJSON(&cAddress)
+		if err != nil {
+			return
+		}
 
 		WGupdateClientAddress(client.ClientId, cAddress.Address)
 		response := successResponse{
