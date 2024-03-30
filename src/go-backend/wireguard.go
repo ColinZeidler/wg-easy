@@ -15,19 +15,7 @@ import (
 	"time"
 )
 
-var WG_PATH = "./"
-var WG_HOST = ""
-var WG_PORT = "51820"
-var WG_MTU = ""
-var WG_DEFAULT_DNS = ""
-var WG_DEFAULT_ADDRESS = "10.0.0.x"
 var WG_PERSISTENT_KEEPALIVE = ""
-var WG_ALLOWED_IPS = "0.0.0.0/0, ::/0"
-var WG_PRE_UP = ""
-var WG_POST_UP = ""
-var WG_PRE_DOWN = ""
-var WG_POST_DOWN = ""
-var WG_INTERFACE = "wg0"
 
 var TESTING = false
 
@@ -59,32 +47,38 @@ type WGClient struct {
 }
 
 var myConfig *WGConfig = nil
+var apiConf WGApiConfig
 
 func WGgetConfig() *WGConfig {
+	apiConf = ConfigGetApi()
 	if myConfig == nil {
-		jsonBytes, err := os.ReadFile(filepath.Join(WG_PATH, WG_INTERFACE+".json"))
+		jsonBytes, err := os.ReadFile(filepath.Join(apiConf.Path, apiConf.Interface+".json"))
 		var wgConfig WGConfig
 		if err == nil {
 			jsonErr := json.Unmarshal(jsonBytes, &wgConfig)
 			if jsonErr != nil {
 				fmt.Println("Error parsing config, creating New")
-				wgConfig = WGcreateNewConfig()
+				wgConfig = wgCreateNewConfig()
 			}
 		} else {
 			fmt.Println("Error loading config, creating New")
-			wgConfig = WGcreateNewConfig()
+			wgConfig = wgCreateNewConfig()
 		}
 		myConfig = &wgConfig
 		_WGsaveConfig(myConfig)
 		if !TESTING {
-			// TODO first time startup of config with wg-quick down up
+			exec.Command("wg-quick", "down", apiConf.Interface).Run()
+			err := exec.Command("wg-quick", "up", apiConf.Interface).Run()
+			if err != nil {
+				fmt.Println("Error starting Wireguard interface ", apiConf.Interface)
+			}
 			_WGsyncConfig()
 		}
 	}
 	return myConfig
 }
 
-func WGgenKeys() (string, string) {
+func wgGenKeys() (string, string) {
 	outBytes, err := exec.Command("wg", "genkey").Output()
 	if err != nil {
 		fmt.Println("Error creating Private Key")
@@ -105,10 +99,10 @@ func WGgenKeys() (string, string) {
 	return privateKey, publicKey
 }
 
-func WGcreateNewConfig() WGConfig {
-	privateKey, publicKey := WGgenKeys()
+func wgCreateNewConfig() WGConfig {
+	privateKey, publicKey := wgGenKeys()
 
-	address := strings.Replace(WG_DEFAULT_ADDRESS, "x", "1", -1)
+	address := strings.Replace(apiConf.DefaultAddress, "x", "1", -1)
 
 	config := WGConfig{
 		Server: WGServer{
@@ -131,27 +125,27 @@ func _WGsaveConfig(wgConfig *WGConfig) {
 	if err != nil {
 		fmt.Println("Issue Encoding config to JSON", err)
 	}
-	err = os.WriteFile(filepath.Join(WG_PATH, WG_INTERFACE+".json"), jsonBytes, 0o600)
+	err = os.WriteFile(filepath.Join(apiConf.Path, apiConf.Interface+".json"), jsonBytes, 0o600)
 	if err != nil {
 		fmt.Println("Issue writing config", err)
 	}
 
-	// save WG_INTERFACE.conf file
+	// save apiConf.Interface.conf file
 	var configBuilder strings.Builder
 
 	configBuilder.WriteString("# Server\n")
 	configBuilder.WriteString("[Interface]\n")
 	configBuilder.WriteString("PrivateKey = " + wgConfig.Server.PrivateKey + "\n")
 	configBuilder.WriteString("Address = " + wgConfig.Server.Address + "/24\n")
-	configBuilder.WriteString("ListenPort = " + WG_PORT + "\n")
-	configBuilder.WriteString("PreUp = " + WG_PRE_UP + "\n")
-	configBuilder.WriteString("PostUp = " + WG_POST_UP + "\n")
-	configBuilder.WriteString("PreDown = " + WG_PRE_DOWN + "\n")
-	configBuilder.WriteString("PostDown = " + WG_POST_DOWN + "\n")
+	configBuilder.WriteString("ListenPort = " + apiConf.Port + "\n")
+	configBuilder.WriteString("PreUp = " + apiConf.PreUp + "\n")
+	configBuilder.WriteString("PostUp = " + apiConf.PostUp + "\n")
+	configBuilder.WriteString("PreDown = " + apiConf.PreDown + "\n")
+	configBuilder.WriteString("PostDown = " + apiConf.PostDown + "\n")
 	configBuilder.WriteString("\n")
 
 	for clientId, client := range wgConfig.Clients {
-		configBuilder.WriteString("# Client" + client.Name + " (" + clientId + ")\n")
+		configBuilder.WriteString("# Client " + client.Name + " (" + clientId + ")\n")
 		configBuilder.WriteString("[Peer]\n")
 		configBuilder.WriteString("PublicKey = " + client.PublicKey + "\n")
 		configBuilder.WriteString("AllowedIPs = " + client.Address + "/32\n")
@@ -159,7 +153,7 @@ func _WGsaveConfig(wgConfig *WGConfig) {
 
 	configString := configBuilder.String()
 
-	confErr := os.WriteFile(filepath.Join(WG_PATH, WG_INTERFACE+".conf"), []byte(configString), 0o600)
+	confErr := os.WriteFile(filepath.Join(apiConf.Path, apiConf.Interface+".conf"), []byte(configString), 0o600)
 	if confErr != nil {
 		fmt.Println("Issue writing .conf config", err)
 	}
@@ -171,7 +165,7 @@ func _WGsyncConfig() {
 		fmt.Println("WGsyncConfig, Skipping due to testing")
 		return
 	}
-	pipeCmd := "wg syncconf " + WG_INTERFACE + " <(wg-quick strip " + WG_INTERFACE + ")"
+	pipeCmd := "wg syncconf " + apiConf.Interface + " <(wg-quick strip " + apiConf.Interface + ")"
 	cmd := exec.Command("bash", "-c", pipeCmd)
 	err := cmd.Run()
 	if err != nil {
@@ -180,7 +174,7 @@ func _WGsyncConfig() {
 }
 
 func WGgetStats() (string, bool) {
-	cmd := exec.Command("wg", "show", WG_INTERFACE, "dump")
+	cmd := exec.Command("wg", "show", apiConf.Interface, "dump")
 	var statsB bytes.Buffer
 	cmd.Stdout = &statsB
 	err := cmd.Run()
@@ -230,10 +224,10 @@ func WGgetClients() []WGClient {
 			client.TransferTx = tx
 			client.PersistentKeepalive = persist
 
-			// TODO test if this needs to be done:
 			clients[client.ClientId] = client
 		}
 	}
+	config.Clients = clients
 
 	clientArr := make([]WGClient, 0, len(clients))
 	for _, c := range clients {
@@ -276,16 +270,16 @@ func WGgetClientConfig(clientId string) string {
 		configBuilder.WriteString(client.PrivateKey)
 	}
 	configBuilder.WriteString("\nAddress = " + client.Address + "/24")
-	if WG_DEFAULT_DNS != "" {
-		configBuilder.WriteString("\nDNS = " + WG_DEFAULT_DNS)
+	if apiConf.DefaultDNS != "" {
+		configBuilder.WriteString("\nDNS = " + apiConf.DefaultDNS)
 	}
-	if WG_MTU != "" {
-		configBuilder.WriteString("\nMTU = " + WG_MTU)
+	if apiConf.Mtu != "" {
+		configBuilder.WriteString("\nMTU = " + apiConf.Mtu)
 	}
 
 	configBuilder.WriteString("\n\n[Peer]\nPublicKey = " + config.Server.PublicKey)
-	configBuilder.WriteString("\nAllowedIPs = " + WG_ALLOWED_IPS)
-	configBuilder.WriteString("\nEndpoint = " + WG_HOST + ":" + WG_PORT)
+	configBuilder.WriteString("\nAllowedIPs = " + apiConf.AllowedServerIp)
+	configBuilder.WriteString("\nEndpoint = " + apiConf.HostName + ":" + apiConf.Port)
 	configBuilder.WriteString("\n")
 
 	clientConfig := configBuilder.String()
@@ -295,7 +289,7 @@ func WGgetClientConfig(clientId string) string {
 func WGcreateClient(name string) {
 
 	config := WGgetConfig()
-	privkey, pubKey := WGgenKeys()
+	privkey, pubKey := wgGenKeys()
 
 	if config.Clients == nil {
 		config.Clients = make(map[string]WGClient)
@@ -319,7 +313,7 @@ func WGcreateClient(name string) {
 		ip = high + 1
 	}
 
-	address := strings.Replace(WG_DEFAULT_ADDRESS, "x", strconv.Itoa(ip), -1)
+	address := strings.Replace(apiConf.DefaultAddress, "x", strconv.Itoa(ip), -1)
 	idBytes := make([]byte, 10)
 	rand.Read(idBytes)
 	id := hex.EncodeToString(idBytes)
@@ -397,9 +391,9 @@ func WGshutdown() {
 		fmt.Println("WGshutdown, Skipping due to Testing")
 		return
 	}
-	cmd := exec.Command("wg-quick", "down", WG_INTERFACE)
+	cmd := exec.Command("wg-quick", "down", apiConf.Interface)
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("Error bringing", WG_INTERFACE, "down:", err)
+		fmt.Println("Error bringing", apiConf.Interface, "down:", err)
 	}
 }

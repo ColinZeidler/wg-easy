@@ -12,12 +12,6 @@ import (
 )
 
 var RELEASE = 12
-var LANG = "en"
-var UI_TRAFFIC_STATS = false
-var UI_CHART_TYPE = 0
-var USER = ""
-var PASSWORD = "test"
-var WEB_PORT = "9505"
 
 type sessionData struct {
 	RequiresPassword bool `json:"requiresPassword"`
@@ -55,8 +49,7 @@ type errorMessage struct {
 
 func AuthMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		fmt.Println("Checking Auth Middleware")
-		if len(PASSWORD) == 0 {
+		if len(webConf.Password) == 0 {
 			fmt.Println("No password Needed, allow api access")
 			ctx.Next()
 			return
@@ -66,7 +59,6 @@ func AuthMiddleware() gin.HandlerFunc {
 		value := session.Get("Authenticated")
 		authenticated, ok := value.(bool)
 		if ok && authenticated {
-			fmt.Println("Authentication Success")
 			ctx.Next()
 			return
 		}
@@ -83,7 +75,7 @@ func AuthMiddleware() gin.HandlerFunc {
 				return
 			}
 			payload, _ := base64.StdEncoding.DecodeString(auth[1])
-			test := USER + ":" + PASSWORD
+			test := webConf.User + ":" + webConf.Password
 			if test == string(payload) {
 				ctx.Next()
 				return
@@ -97,25 +89,30 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+var webConf WebConfig
+
 func main() {
+	webConf = ConfigGetWeb()
+	WGsaveConfig()
+
 	router := gin.Default()
-	store := cookie.NewStore([]byte("qiouwhjklv"))
+	store := cookie.NewStore([]byte("qiouwhjklv")) // TODO gen random secret?
 	router.Use(sessions.Sessions("wgeasysession", store))
 	router.GET("/api/release", func(ctx *gin.Context) {
 		ctx.IndentedJSON(http.StatusOK, RELEASE)
 	})
 	router.GET("/api/lang", func(ctx *gin.Context) {
-		ctx.IndentedJSON(http.StatusOK, LANG)
+		ctx.IndentedJSON(http.StatusOK, webConf.Lang)
 	})
 	router.GET("/api/ui-traffic-stats", func(ctx *gin.Context) {
-		ctx.IndentedJSON(http.StatusOK, UI_TRAFFIC_STATS)
+		ctx.IndentedJSON(http.StatusOK, webConf.UiTrafficStats)
 	})
 	router.GET("/api/ui-chart-type", func(ctx *gin.Context) {
-		ctx.IndentedJSON(http.StatusOK, UI_CHART_TYPE)
+		ctx.IndentedJSON(http.StatusOK, webConf.UiChartType)
 	})
 
 	router.GET("/api/session", func(ctx *gin.Context) {
-		reqPw := len(PASSWORD) > 0
+		reqPw := len(webConf.Password) > 0
 		authenticated := false
 		if reqPw {
 			session := sessions.Default(ctx)
@@ -137,8 +134,7 @@ func main() {
 		var login loginRequest
 		ctx.BindJSON(&login)
 
-		authenticated := login.Password == PASSWORD
-		fmt.Println(login, PASSWORD, authenticated)
+		authenticated := login.Password == webConf.Password
 		session := sessions.Default(ctx)
 		session.Set("Authenticated", authenticated)
 		session.Save()
@@ -267,5 +263,5 @@ func main() {
 		ctx.IndentedJSON(http.StatusOK, response)
 	})
 
-	router.Run(":" + WEB_PORT)
+	router.Run(":" + webConf.Port)
 }
