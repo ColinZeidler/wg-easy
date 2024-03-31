@@ -155,6 +155,7 @@ func main() {
 	router.DELETE("/api/session", func(ctx *gin.Context) {
 		session := sessions.Default(ctx)
 		session.Clear()
+		session.Save()
 		response := successResponse{
 			Success: true,
 		}
@@ -174,7 +175,12 @@ func main() {
 		var client clientUri
 		ctx.BindUri(&client)
 		// TODO need a qrcode api
-
+		qr := WGgetSVG(client.ClientId)
+		if qr == "" {
+			ctx.String(http.StatusNoContent, "Requested Client does not exist or have a QR code")
+		}
+		ctx.Header("Content-Type", "image/svg+xml")
+		ctx.String(http.StatusOK, qr)
 	})
 	authGroup.GET("/client/:clientId/configuration", func(ctx *gin.Context) {
 		// Get Client config
@@ -182,6 +188,7 @@ func main() {
 		ctx.BindUri(&client)
 
 		config := WGgetClientConfig(client.ClientId)
+		ctx.Header("Content-Disposition", "attachment; filename="+client.ClientId+".conf")
 		ctx.Header("Content-Type", "text/plain")
 		ctx.String(http.StatusOK, config)
 	})

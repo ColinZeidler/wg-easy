@@ -13,11 +13,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	qrsvg "github.com/wamuir/svg-qr-code"
 )
 
 var WG_PERSISTENT_KEEPALIVE = ""
 
-var TESTING = false
+var TESTING = true
 
 type WGConfig struct {
 	Server  WGServer            `json:"server"`
@@ -246,9 +248,19 @@ func WGgetClients() []WGClient {
 	return clientArr
 }
 
-/*
-* Returns Zero value  WGClient if no such client exists
- */
+func WGgetSVG(clientId string) string {
+	clientConf := WGgetClientConfig(clientId)
+	if clientConf == "" {
+		return ""
+	}
+	svg, err := qrsvg.New(clientConf)
+	if err != nil {
+		return ""
+	}
+	return svg.String()
+}
+
+// Returns Zero value  WGClient if no such client exists
 func WGgetClient(clientId string) (WGClient, bool) {
 	config := WGgetConfig()
 	client, ok := config.Clients[clientId]

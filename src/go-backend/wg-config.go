@@ -59,6 +59,7 @@ func ConfigGetAppConf() *AppConfig {
 				Port:            "51820",
 				Interface:       "wg0",
 				AllowedServerIp: "0.0.0.0/0, ::/0",
+				DefaultAddress:  "10.0.0.x",
 			},
 			WebConfig: WebConfig{
 				Lang:           "en",
