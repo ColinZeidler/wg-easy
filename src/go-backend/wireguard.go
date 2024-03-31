@@ -147,6 +147,9 @@ func _WGsaveConfig(wgConfig *WGConfig) {
 	configBuilder.WriteString("\n")
 
 	for clientId, client := range wgConfig.Clients {
+		if !client.Enabled {
+			continue
+		}
 		configBuilder.WriteString("# Client " + client.Name + " (" + clientId + ")\n")
 		configBuilder.WriteString("[Peer]\n")
 		configBuilder.WriteString("PublicKey = " + client.PublicKey + "\n")
