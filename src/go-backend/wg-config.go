@@ -40,6 +40,10 @@ type WebConfig struct {
 var localAppConfig *AppConfig = nil
 var configFile string = "./wg-easy.json"
 
+func ConfigGetFile() string {
+	return configFile
+}
+
 func ConfigSetFile(filePath string) {
 	configFile = filePath
 }

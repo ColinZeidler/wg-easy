@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"flag"
 	"fmt"
 	"net/http"
 	"strings"
@@ -92,7 +93,16 @@ func AuthMiddleware() gin.HandlerFunc {
 var webConf WebConfig
 
 func main() {
+	configPath := flag.String("c", ConfigGetFile(), "Path to the apps config file")
+	genConfig := flag.Bool("generate", false, "Generate a default config and exit")
+	flag.Parse()
+	ConfigSetFile(*configPath)
 	webConf = ConfigGetWeb()
+	if *genConfig {
+		// Exiting now that a config has been generated
+		fmt.Println("Created a config at:", *configPath)
+		return
+	}
 	WGsaveConfig()
 
 	router := gin.Default()
