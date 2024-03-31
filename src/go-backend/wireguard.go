@@ -19,7 +19,7 @@ import (
 
 var WG_PERSISTENT_KEEPALIVE = ""
 
-var TESTING = true
+var TESTING = false
 
 type WGConfig struct {
 	Server  WGServer            `json:"server"`
@@ -196,11 +196,17 @@ func WGgetClients() []WGClient {
 	if ok { //if there was an issue gettings stats dont add them
 		for index, line := range strings.Split(stats, "\n") {
 			// First line doesn't match all the peer lines, so skip it
+			if line == "" {
+				continue
+			}
 			if index == 0 {
 				continue
 			}
 			//Data is: pubKey 0, PreSK 1, endpoint 2, allowedIps 3, latestHS 4, RX 5, TX 6, persistKA 7
 			data := strings.Split(line, "\t")
+			if len(data) < 8 {
+				continue
+			}
 			publicKey := data[0]
 			lastHandshake := data[4]
 			hsInt, _ := strconv.ParseInt(lastHandshake, 10, 64)
