@@ -72,7 +72,7 @@ func AuthMiddleware() gin.HandlerFunc {
 				response := errorMessage{
 					Error: "Not Logged In",
 				}
-				ctx.IndentedJSON(http.StatusUnauthorized, response)
+				ctx.JSON(http.StatusUnauthorized, response)
 				return
 			}
 			payload, _ := base64.StdEncoding.DecodeString(auth[1])
@@ -86,7 +86,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		response := errorMessage{
 			Error: "Not Logged In",
 		}
-		ctx.IndentedJSON(http.StatusUnauthorized, response)
+		ctx.JSON(http.StatusUnauthorized, response)
 	}
 }
 
@@ -109,16 +109,16 @@ func main() {
 	store := cookie.NewStore([]byte("qiouwhjklv")) // TODO gen random secret?
 	router.Use(sessions.Sessions("wgeasysession", store))
 	router.GET("/api/release", func(ctx *gin.Context) {
-		ctx.IndentedJSON(http.StatusOK, RELEASE)
+		ctx.JSON(http.StatusOK, RELEASE)
 	})
 	router.GET("/api/lang", func(ctx *gin.Context) {
-		ctx.IndentedJSON(http.StatusOK, webConf.Lang)
+		ctx.JSON(http.StatusOK, webConf.Lang)
 	})
 	router.GET("/api/ui-traffic-stats", func(ctx *gin.Context) {
-		ctx.IndentedJSON(http.StatusOK, webConf.UiTrafficStats)
+		ctx.JSON(http.StatusOK, webConf.UiTrafficStats)
 	})
 	router.GET("/api/ui-chart-type", func(ctx *gin.Context) {
-		ctx.IndentedJSON(http.StatusOK, webConf.UiChartType)
+		ctx.JSON(http.StatusOK, webConf.UiChartType)
 	})
 
 	router.GET("/api/session", func(ctx *gin.Context) {
@@ -137,7 +137,7 @@ func main() {
 			RequiresPassword: reqPw,
 			Authenticated:    authenticated,
 		}
-		ctx.IndentedJSON(http.StatusOK, response)
+		ctx.JSON(http.StatusOK, response)
 	})
 
 	router.POST("/api/session", func(ctx *gin.Context) {
@@ -153,13 +153,13 @@ func main() {
 			response := successResponse{
 				Success: true,
 			}
-			ctx.IndentedJSON(http.StatusOK, response)
+			ctx.JSON(http.StatusOK, response)
 		} else {
 			response := statusMessage{
 				Status:  401,
 				Message: "Incorrect password",
 			}
-			ctx.IndentedJSON(http.StatusUnauthorized, response)
+			ctx.JSON(http.StatusUnauthorized, response)
 		}
 	})
 	router.DELETE("/api/session", func(ctx *gin.Context) {
@@ -169,7 +169,7 @@ func main() {
 		response := successResponse{
 			Success: true,
 		}
-		ctx.IndentedJSON(http.StatusOK, response)
+		ctx.JSON(http.StatusOK, response)
 	})
 
 	// WireGuard API endpoints
@@ -178,7 +178,7 @@ func main() {
 	authGroup.GET("/client", func(ctx *gin.Context) {
 		// Get all Clients
 		clients := WGgetClients()
-		ctx.IndentedJSON(http.StatusOK, clients)
+		ctx.JSON(http.StatusOK, clients)
 	})
 	authGroup.GET("/client/:clientId/qrcode.svg", func(ctx *gin.Context) {
 		// Get Client config as QR code
@@ -206,11 +206,17 @@ func main() {
 		// Create Client
 		var client clientName
 		ctx.BindJSON(&client)
-		WGcreateClient(client.Name)
+		ok := WGcreateClient(client.Name)
+		if !ok {
+			response := errorMessage{
+				Error: "No available IPs",
+			}
+			ctx.JSON(http.StatusBadRequest, response)
+		}
 		response := successResponse{
 			Success: true,
 		}
-		ctx.IndentedJSON(http.StatusOK, response)
+		ctx.JSON(http.StatusOK, response)
 	})
 	authGroup.DELETE("/client/:clientId", func(ctx *gin.Context) {
 		// Delete Client
@@ -221,7 +227,7 @@ func main() {
 		response := successResponse{
 			Success: true,
 		}
-		ctx.IndentedJSON(http.StatusOK, response)
+		ctx.JSON(http.StatusOK, response)
 	})
 	authGroup.POST("/client/:clientId/enable", func(ctx *gin.Context) {
 		// Enable Client
@@ -232,7 +238,7 @@ func main() {
 		response := successResponse{
 			Success: true,
 		}
-		ctx.IndentedJSON(http.StatusOK, response)
+		ctx.JSON(http.StatusOK, response)
 	})
 	authGroup.POST("/client/:clientId/disable", func(ctx *gin.Context) {
 		// Disable Client
@@ -243,7 +249,7 @@ func main() {
 		response := successResponse{
 			Success: true,
 		}
-		ctx.IndentedJSON(http.StatusOK, response)
+		ctx.JSON(http.StatusOK, response)
 	})
 	authGroup.PUT("/client/:clientId/name/", func(ctx *gin.Context) {
 		// Update Client name
@@ -261,7 +267,7 @@ func main() {
 		response := successResponse{
 			Success: true,
 		}
-		ctx.IndentedJSON(http.StatusOK, response)
+		ctx.JSON(http.StatusOK, response)
 	})
 	authGroup.PUT("/client/:clientId/address/", func(ctx *gin.Context) {
 		// Update Client address
@@ -277,7 +283,7 @@ func main() {
 		response := successResponse{
 			Success: true,
 		}
-		ctx.IndentedJSON(http.StatusOK, response)
+		ctx.JSON(http.StatusOK, response)
 	})
 
 	router.Run(":" + webConf.Port)

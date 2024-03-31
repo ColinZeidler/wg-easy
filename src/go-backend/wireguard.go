@@ -299,7 +299,7 @@ func WGgetClientConfig(clientId string) string {
 	}
 
 	configBuilder.WriteString("\n\n[Peer]\nPublicKey = " + config.Server.PublicKey)
-	configBuilder.WriteString("\nAllowedIPs = " + apiConf.AllowedServerIp)
+	configBuilder.WriteString("\nAllowedIPs = " + apiConf.AllowedServerIp) // Specifies the IPs that get routed over the tunnel
 	configBuilder.WriteString("\nEndpoint = " + apiConf.HostName + ":" + apiConf.Port)
 	configBuilder.WriteString("\n")
 
@@ -307,7 +307,7 @@ func WGgetClientConfig(clientId string) string {
 	return clientConfig
 }
 
-func WGcreateClient(name string) {
+func WGcreateClient(name string) bool {
 
 	config := WGgetConfig()
 	privkey, pubKey := wgGenKeys()
@@ -316,22 +316,22 @@ func WGcreateClient(name string) {
 		config.Clients = make(map[string]WGClient)
 	}
 
-	floor := 2
-	low := floor
-	high := floor
-	var ip int
+	ip := 2
+	usedIps := make(map[int]bool)
 	for _, existingClient := range config.Clients {
-		clientIp, err := strconv.Atoi(strings.Split(existingClient.Address, ".")[3])
-		if err != nil {
-			clientIp = 254
-		}
-		low = min(low, clientIp)
-		high = max(high, clientIp)
+		clientIp, _ := strconv.Atoi(strings.Split(existingClient.Address, ".")[3])
+		usedIps[clientIp] = true
 	}
-	if low > floor {
-		ip = low - 1
-	} else {
-		ip = high + 1
+	for ip < 254 {
+		used := usedIps[ip]
+		if !used {
+			break
+		}
+		ip += 1
+	}
+	if ip >= 255 {
+		// No free IPs available
+		return false
 	}
 
 	address := strings.Replace(apiConf.DefaultAddress, "x", strconv.Itoa(ip), -1)
@@ -356,6 +356,7 @@ func WGcreateClient(name string) {
 	config.Clients[id] = client
 
 	WGsaveConfig()
+	return true
 }
 
 func WGdeleteClient(clientId string) {
